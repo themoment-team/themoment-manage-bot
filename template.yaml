@@ -28,6 +28,7 @@ Resources:
   WorkerFunction:
     Type: AWS::Serverless::Function
     Properties:
+      FunctionName: themoment-bot-worker   # 고정 이름 (일꾼: 실제 배치 작업)
       CodeUri: src/
       Handler: worker.handler
       Timeout: 60          # 배치 작업용으로 넉넉히
@@ -40,6 +41,7 @@ Resources:
   InteractionFunction:
     Type: AWS::Serverless::Function
     Properties:
+      FunctionName: themoment-bot-front    # 고정 이름 (입구: Discord 수신 + 즉시 응답)
       CodeUri: src/
       Handler: app.handler
       Timeout: 5           # 3초 규칙: 짧게. 여기서 무거운 일 하면 안 됨.
