@@ -1,0 +1,65 @@
+AWSTemplateFormatVersion: "2010-09-09"
+Transform: AWS::Serverless-2016-10-31
+Description: >
+  themoment-manage-bot — Discord 서버 관리 봇 (HTTP Interactions, Python).
+  Front Lambda가 3초 안에 응답하고, Worker Lambda가 배치 작업을 처리.
+
+Parameters:
+  DiscordPublicKey:
+    Type: String
+    Description: Discord Application의 Public Key
+  DiscordApplicationId:
+    Type: String
+    Description: Discord Application ID
+  DiscordBotToken:
+    Type: String
+    NoEcho: true
+    Description: Discord Bot Token
+
+Globals:
+  Function:
+    Runtime: python3.13   # SAM 빌드 이미지 기준. 로컬 3.14와 무관하게 배포됨.
+    MemorySize: 256
+    Architectures:
+      - arm64             # Graviton = 더 저렴. x86 필요 시 제거.
+
+Resources:
+  # --- Worker Lambda: 실제 배치 작업 ---
+  WorkerFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      CodeUri: src/
+      Handler: worker.handler
+      Timeout: 60          # 배치 작업용으로 넉넉히
+      Environment:
+        Variables:
+          DISCORD_APPLICATION_ID: !Ref DiscordApplicationId
+          DISCORD_BOT_TOKEN: !Ref DiscordBotToken
+
+  # --- Front Lambda: Discord 수신 + 즉시 응답 ---
+  InteractionFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      CodeUri: src/
+      Handler: app.handler
+      Timeout: 5           # 3초 규칙: 짧게. 여기서 무거운 일 하면 안 됨.
+      Environment:
+        Variables:
+          DISCORD_PUBLIC_KEY: !Ref DiscordPublicKey
+          WORKER_FUNCTION_NAME: !Ref WorkerFunction
+      Policies:
+        # Front가 Worker를 비동기 invoke 할 수 있도록 권한 부여
+        - LambdaInvokePolicy:
+            FunctionName: !Ref WorkerFunction
+      Events:
+        DiscordInteraction:
+          Type: Api
+          Properties:
+            Path: /interactions
+            Method: post
+
+Outputs:
+  InteractionsEndpoint:
+    Description: >
+      이 URL을 Discord Developer Portal의 "Interactions Endpoint URL"에 등록하세요.
+    Value: !Sub "https://${ServerlessRestApi}.execute-api.${AWS::Region}.amazonaws.com/Prod/interactions"

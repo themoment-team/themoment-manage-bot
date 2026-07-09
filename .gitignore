@@ -1,0 +1,14 @@
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+
+# AWS SAM
+.aws-sam/
+samconfig.toml
+
+# 비밀값 — 절대 커밋 금지
+env.json
+.env
+*.local

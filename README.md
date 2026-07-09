@@ -1,0 +1,101 @@
+# themoment-manage-bot
+
+Discord 서버 관리 봇. 슬래시 명령어로 채널 생성 · 역할 기반 별명 일괄 변경 같은
+배치성 관리 작업을 수행합니다. **AWS Lambda(서버리스) + HTTP Interactions** 구조라
+상시 서버가 필요 없고, 명령이 올 때만 실행되어 비용이 거의 들지 않습니다.
+
+## 아키텍처
+
+```
+Discord ──HTTP POST──▶ API Gateway ──▶ Front Lambda (app.py)
+                                          │ 1. 서명 검증
+                                          │ 2. PING→PONG
+                                          │ 3. 명령이면:
+                                          │    - Worker를 비동기 invoke
+                                          │    - 즉시 deferred 응답 (3초 규칙 준수)
+                                          ▼
+                                       Worker Lambda (worker.py)
+                                          │ 실제 배치 작업 (채널 생성, 별명 변경)
+                                          ▼
+                                       Discord REST API + followup 웹훅
+```
+
+### 왜 Lambda가 두 개인가? (3초 규칙)
+
+Discord는 슬래시 명령에 **3초 안의 응답**을 요구합니다. 30명 별명 변경 같은
+배치 작업은 이를 넘길 수 있습니다. 그래서:
+
+- **Front Lambda**는 실제 작업을 하지 않고, Worker에게 넘긴 뒤 즉시 "생각 중..."
+  (deferred) 응답만 반환합니다. → 항상 3초 안에 끝남.
+- **Worker Lambda**는 시간 제약 없이 작업하고, 끝나면 followup 웹훅으로 결과를 보냅니다.
+
+---
+
+## 셋업 가이드 (처음부터)
+
+### 1. Discord 앱 만들기
+
+1. https://discord.com/developers/applications → **New Application**
+2. 좌측 **Bot** → 봇 추가 → **Reset Token**으로 토큰 확보 (`DISCORD_BOT_TOKEN`)
+3. **Bot** 화면에서 **Privileged Gateway Intents → SERVER MEMBERS INTENT** 켜기
+   (별명 일괄 변경 시 멤버 목록 조회에 필요)
+4. 좌측 **General Information** → **Public Key**(`DISCORD_PUBLIC_KEY`),
+   **Application ID**(`DISCORD_APPLICATION_ID`) 확보
+5. 좌측 **OAuth2 → URL Generator**:
+   - scopes: `bot`, `applications.commands`
+   - Bot Permissions: `Manage Channels`, `Manage Nicknames`, `Manage Roles`
+   - 생성된 URL로 봇을 내 서버에 초대
+
+### 2. 필요한 도구 설치 (배포용)
+
+```bash
+brew install aws-sam-cli awscli
+aws configure          # AWS 액세스 키 입력
+```
+
+### 3. 배포
+
+```bash
+sam build
+sam deploy --guided \
+  --parameter-overrides \
+    DiscordPublicKey=<PUBLIC_KEY> \
+    DiscordApplicationId=<APP_ID> \
+    DiscordBotToken=<BOT_TOKEN>
+```
+
+배포가 끝나면 출력에 **InteractionsEndpoint** URL이 나옵니다.
+
+### 4. Interactions Endpoint URL 등록
+
+Discord Developer Portal → **General Information** →
+**Interactions Endpoint URL**에 위 URL을 붙여넣고 저장.
+(저장 시 Discord가 PING을 보내 서명 검증을 확인합니다 — Front Lambda가
+통과시켜야 저장됩니다.)
+
+### 5. 슬래시 명령어 등록
+
+```bash
+export DISCORD_APPLICATION_ID=<APP_ID>
+export DISCORD_BOT_TOKEN=<BOT_TOKEN>
+export DISCORD_GUILD_ID=<내 서버 ID>   # 테스트: 즉시 반영됨
+python scripts/register_commands.py
+```
+
+### 6. 테스트
+
+Discord 서버에서 `/create-channel name:테스트` 실행 → 채널이 생기고
+"✅ 채널 생성 완료!" 메시지가 뜨면 성공.
+
+---
+
+## 명령어 추가하는 법
+
+1. `scripts/register_commands.py`의 `COMMANDS`에 정의 추가 → 스크립트 재실행
+2. `src/worker.py`의 `_handle_command()`에 `elif name == "..."` 분기 추가
+3. `sam build && sam deploy`
+
+## 비용
+
+20~30명 서버 기준, 명령 실행이 하루 수십~수백 번이라도 Lambda/API Gateway
+**프리 티어 안**에 들어갑니다. 사실상 무료.
