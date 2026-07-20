@@ -82,6 +82,44 @@ COMMANDS = [
             },
         ],
     },
+    {
+        "name": "기수-역할추가",
+        "description": "특정 기수 역할을 가진 서버 내 모든 멤버에게 역할을 추가합니다",
+        "default_member_permissions": _ADMIN_ONLY,
+        "options": [
+            {
+                "name": "기수역할",
+                "description": "대상이 될 기수 역할 (이 역할을 가진 모든 멤버가 대상)",
+                "type": 8,
+                "required": True,
+            },
+            {
+                "name": "추가역할",
+                "description": "대상 멤버들에게 추가할 역할",
+                "type": 8,
+                "required": True,
+            },
+        ],
+    },
+    {
+        "name": "기수-역할삭제",
+        "description": "특정 기수 역할을 가진 서버 내 모든 멤버에게서 역할을 삭제합니다",
+        "default_member_permissions": _ADMIN_ONLY,
+        "options": [
+            {
+                "name": "기수역할",
+                "description": "대상이 될 기수 역할 (이 역할을 가진 모든 멤버가 대상)",
+                "type": 8,
+                "required": True,
+            },
+            {
+                "name": "삭제역할",
+                "description": "대상 멤버들에게서 삭제할 역할",
+                "type": 8,
+                "required": True,
+            },
+        ],
+    },
 ]
 
 

@@ -82,8 +82,64 @@ def _handle_command(interaction: dict) -> None:
             f"✅ 역할 신청 확인 채널을 <#{channel_id}> 로 설정했어요.",
         )
 
+    elif name == "기수-역할추가":
+        _bulk_role(interaction, guild_id, options, "추가역할", add=True)
+
+    elif name == "기수-역할삭제":
+        _bulk_role(interaction, guild_id, options, "삭제역할", add=False)
+
     else:
         _safe_followup(interaction, f"❓ 모르는 명령어예요: `{name}`")
+
+
+def _bulk_role(
+    interaction: dict, guild_id: str, options: dict, target_key: str, add: bool
+) -> None:
+    """기수 역할을 가진 모든 멤버에게 대상 역할을 일괄 추가/삭제한다.
+
+    add=True 면 추가, False 면 삭제. 서버 규모가 작아(20~30명) 한 번의 멤버
+    조회로 충분하다. 이미 원하는 상태인 멤버는 건너뛰어 API 호출을 줄인다.
+    """
+    grade_role = options.get("기수역할")
+    target_role = options.get(target_key)
+    action = "추가" if add else "삭제"
+
+    # limit=1000 = 이 엔드포인트의 최대치. SERVER MEMBERS INTENT 필요.
+    members = discord_api.list_members(guild_id, limit=1000)
+
+    changed = 0
+    skipped = 0
+    failed = 0
+    for m in members:
+        user = m.get("user", {})
+        if user.get("bot"):
+            continue  # 봇 계정은 제외
+        if not discord_api.member_has_role(m, grade_role):
+            continue  # 대상 기수 역할이 없는 멤버는 무시
+
+        has_target = discord_api.member_has_role(m, target_role)
+        if add == has_target:
+            # 추가인데 이미 있음 / 삭제인데 이미 없음 → 변경 불필요
+            skipped += 1
+            continue
+
+        try:
+            if add:
+                discord_api.add_role(guild_id, user["id"], target_role)
+            else:
+                discord_api.remove_role(guild_id, user["id"], target_role)
+            changed += 1
+        except Exception as e:  # noqa: BLE001 - 개별 실패는 건너뛰고 집계
+            failed += 1
+            print(f"{action} 실패 user={user.get('id')}: {e}")
+
+    msg = (
+        f"✅ <@&{grade_role}> 기수 멤버에게 <@&{target_role}> 역할 {action} 완료!\n"
+        f"• {action}: {changed}명 · 건너뜀(이미 처리됨): {skipped}명"
+    )
+    if failed:
+        msg += f" · 실패: {failed}명 (봇 권한/역할 순서 확인)"
+    _safe_followup(interaction, msg)
 
 
 # --- 버튼 클릭 처리 ---------------------------------------------------------

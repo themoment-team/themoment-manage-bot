@@ -118,6 +118,16 @@ def add_role(guild_id: str, user_id: str, role_id: str) -> None:
     resp.raise_for_status()
 
 
+def remove_role(guild_id: str, user_id: str, role_id: str) -> None:
+    """멤버에게서 역할 제거. 봇에 MANAGE_ROLES 권한 + 봇 역할이 대상보다 위여야 함."""
+    resp = requests.delete(
+        f"{API_BASE}/guilds/{guild_id}/members/{user_id}/roles/{role_id}",
+        headers=_HEADERS,
+        timeout=10,
+    )
+    resp.raise_for_status()
+
+
 def add_button(components: list | None, label: str, custom_id: str) -> list:
     """기존 components(action row 목록)에 버튼 하나를 추가한 새 목록 반환.
 
