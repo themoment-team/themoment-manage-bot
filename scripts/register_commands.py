@@ -66,16 +66,29 @@ COMMANDS = [
                 "type": 8,
                 "required": True,
             },
+            {
+                "name": "승인메시지",
+                "description": "승인되면 전송 채널로 보낼 메시지 (앞에 승인된 유저가 멘션됩니다)",
+                "type": 3,
+                "required": True,
+            },
         ],
     },
     {
         "name": "역할지급-설정",
-        "description": "역할 신청이 올 때 관리자가 확인할 채널을 설정합니다",
+        "description": "승인 채널(관리자 확인)과 전송 채널(승인 안내)을 설정합니다",
         "default_member_permissions": _ADMIN_ONLY,
         "options": [
             {
-                "name": "채널",
-                "description": "신청 확인용 관리자 채널",
+                "name": "승인채널",
+                "description": "신청이 오면 관리자가 확인·승인할 채널",
+                "type": 7,
+                "channel_types": [0],  # 0=텍스트 채널
+                "required": True,
+            },
+            {
+                "name": "전송채널",
+                "description": "승인됐을 때 안내 메시지를 보낼 채널",
                 "type": 7,
                 "channel_types": [0],  # 0=텍스트 채널
                 "required": True,

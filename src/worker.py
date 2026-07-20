@@ -58,6 +58,7 @@ def _handle_command(interaction: dict) -> None:
     elif name == "역할지급-추가":
         message_id = options.get("메시지id")
         role_id = options.get("역할")
+        approval_message = options.get("승인메시지", "")
         # 대상 메시지는 이 명령을 실행한 채널에 있다고 전제한다.
         channel_id = interaction.get("channel_id")
         role_name = _resolved_role_name(data, role_id)
@@ -69,17 +70,21 @@ def _handle_command(interaction: dict) -> None:
             custom_id=f"apply:{role_id}",
         )
         discord_api.edit_message(channel_id, message_id, components=new_components)
+        # 이 역할이 승인될 때 전송 채널로 보낼 메시지를 역할별로 저장.
+        ssm_store.set_role_message(guild_id, role_id, approval_message)
         _safe_followup(
             interaction,
-            f"✅ 메시지 `{message_id}` 에 **{role_name}** 신청 버튼을 추가했어요.",
+            f"✅ 메시지 `{message_id}` 에 **{role_name}** 신청 버튼을 추가했어요.\n"
+            f"승인 시 전송 채널로 보낼 메시지도 저장했어요.",
         )
 
     elif name == "역할지급-설정":
-        channel_id = options.get("채널")
-        ssm_store.set_review_channel(guild_id, channel_id)
+        review_channel = options.get("승인채널")
+        broadcast_channel = options.get("전송채널")
+        ssm_store.set_channels(guild_id, review_channel, broadcast_channel)
         _safe_followup(
             interaction,
-            f"✅ 역할 신청 확인 채널을 <#{channel_id}> 로 설정했어요.",
+            f"✅ 승인 채널을 <#{review_channel}>, 전송 채널을 <#{broadcast_channel}> 로 설정했어요.",
         )
 
     elif name == "기수-역할추가":
@@ -206,7 +211,7 @@ def _handle_approve(interaction: dict, guild_id: str, custom_id: str) -> None:
 
     role = discord_api.role_name(guild_id, role_id)
 
-    # 관리자 채널의 원본 신청 메시지를 "지급 완료"로 바꾸고 버튼 제거.
+    # 승인 채널의 원본 신청 메시지를 "지급 완료"로 바꾸고 버튼 제거.
     # 역할은 이름 텍스트로, allowed_mentions로 알림이 가지 않게 한다.
     channel_id = interaction.get("channel_id")
     message_id = interaction.get("message", {}).get("id")
@@ -221,7 +226,21 @@ def _handle_approve(interaction: dict, guild_id: str, custom_id: str) -> None:
             components=[],  # 버튼 제거
             allowed_mentions={"parse": []},  # 멘션 알림 억제
         )
-    _safe_followup(interaction, f"✅ 역할을 지급했어요.")
+
+    # 전송 채널에 승인 안내 메시지 게시(설정돼 있고 승인 메시지가 있으면).
+    # 승인된 유저만 멘션으로 알림이 가고, 본문 속 다른 멘션은 알림이 가지 않게 한다.
+    broadcast_channel = ssm_store.get_broadcast_channel(guild_id)
+    approval_message = ssm_store.get_role_message(guild_id, role_id)
+    broadcast_note = ""
+    if broadcast_channel and approval_message:
+        discord_api.send_message(
+            broadcast_channel,
+            f"<@{user_id}> {approval_message}",
+            allowed_mentions={"users": [user_id]},
+        )
+        broadcast_note = f" 전송 채널(<#{broadcast_channel}>)에도 안내 메시지를 보냈어요."
+
+    _safe_followup(interaction, f"✅ 역할을 지급했어요.{broadcast_note}")
 
 
 # --- 헬퍼 -------------------------------------------------------------------
