@@ -55,16 +55,45 @@ def set_nickname(guild_id: str, user_id: str, nickname: str) -> None:
     resp.raise_for_status()
 
 
+def list_roles(guild_id: str) -> list[dict]:
+    """서버의 역할 목록 조회. 각 dict에 id, name 등이 담긴다."""
+    resp = requests.get(
+        f"{API_BASE}/guilds/{guild_id}/roles",
+        headers=_HEADERS,
+        timeout=10,
+    )
+    resp.raise_for_status()
+    return resp.json()
+
+
+def role_name(guild_id: str, role_id: str) -> str:
+    """역할 ID로 역할 이름을 조회. 못 찾으면 ID를 그대로 반환."""
+    for role in list_roles(guild_id):
+        if role.get("id") == role_id:
+            return role.get("name", role_id)
+    return role_id
+
+
 def member_has_role(member: dict, role_id: str) -> bool:
     """멤버가 특정 역할(role)을 가지고 있는지 확인."""
     return role_id in member.get("roles", [])
 
 
-def send_message(channel_id: str, content: str, components: list | None = None) -> dict:
-    """채널에 봇 명의로 메시지 전송. 생성된 메시지 dict(id 포함) 반환."""
+def send_message(
+    channel_id: str,
+    content: str,
+    components: list | None = None,
+    allowed_mentions: dict | None = None,
+) -> dict:
+    """채널에 봇 명의로 메시지 전송. 생성된 메시지 dict(id 포함) 반환.
+
+    allowed_mentions={"parse": []} 를 주면 본문에 멘션이 있어도 알림이 가지 않는다.
+    """
     payload: dict = {"content": content}
     if components is not None:
         payload["components"] = components
+    if allowed_mentions is not None:
+        payload["allowed_mentions"] = allowed_mentions
     resp = requests.post(
         f"{API_BASE}/channels/{channel_id}/messages",
         headers=_HEADERS,
@@ -91,13 +120,19 @@ def edit_message(
     message_id: str,
     content: str | None = None,
     components: list | None = None,
+    allowed_mentions: dict | None = None,
 ) -> dict:
-    """봇이 보낸 메시지의 내용/컴포넌트 수정. 남의 메시지는 수정 불가."""
+    """봇이 보낸 메시지의 내용/컴포넌트 수정. 남의 메시지는 수정 불가.
+
+    allowed_mentions={"parse": []} 를 주면 본문에 멘션이 있어도 알림이 가지 않는다.
+    """
     payload: dict = {}
     if content is not None:
         payload["content"] = content
     if components is not None:
         payload["components"] = components
+    if allowed_mentions is not None:
+        payload["allowed_mentions"] = allowed_mentions
     resp = requests.patch(
         f"{API_BASE}/channels/{channel_id}/messages/{message_id}",
         headers=_HEADERS,

@@ -158,7 +158,9 @@ def _handle_component(interaction: dict) -> None:
 
 def _handle_apply(interaction: dict, guild_id: str, custom_id: str) -> None:
     role_id = custom_id.split(":", 1)[1]
-    applicant_id = interaction.get("member", {}).get("user", {}).get("id")
+    member = interaction.get("member", {})
+    applicant_id = member.get("user", {}).get("id")
+    applicant_name = _member_display_name(member)
 
     review_channel = ssm_store.get_review_channel(guild_id)
     if not review_channel:
@@ -167,6 +169,9 @@ def _handle_apply(interaction: dict, guild_id: str, custom_id: str) -> None:
             "⚠️ 아직 신청 확인 채널이 설정되지 않았어요. 관리자에게 `/역할지급-설정` 을 요청해주세요.",
         )
         return
+
+    # 역할을 멘션(<@&id>)하면 그 역할을 가진 모두에게 알림이 가므로, 이름 텍스트로 보낸다.
+    role = discord_api.role_name(guild_id, role_id)
 
     approve_row = [
         {
@@ -183,8 +188,9 @@ def _handle_apply(interaction: dict, guild_id: str, custom_id: str) -> None:
     ]
     discord_api.send_message(
         review_channel,
-        f"📥 <@{applicant_id}> 님이 <@&{role_id}> 역할을 신청했어요.",
+        f"📥 **{applicant_name}** 님이 **{role}** 역할을 신청했어요.",
         components=approve_row,
+        allowed_mentions={"parse": []},  # 어떤 멘션도 알림이 가지 않도록
     )
     _safe_followup(
         interaction,
@@ -198,7 +204,10 @@ def _handle_approve(interaction: dict, guild_id: str, custom_id: str) -> None:
 
     discord_api.add_role(guild_id, user_id, role_id)
 
+    role = discord_api.role_name(guild_id, role_id)
+
     # 관리자 채널의 원본 신청 메시지를 "지급 완료"로 바꾸고 버튼 제거.
+    # 역할은 이름 텍스트로, allowed_mentions로 알림이 가지 않게 한다.
     channel_id = interaction.get("channel_id")
     message_id = interaction.get("message", {}).get("id")
     if channel_id and message_id:
@@ -206,15 +215,27 @@ def _handle_approve(interaction: dict, guild_id: str, custom_id: str) -> None:
             channel_id,
             message_id,
             content=(
-                f"✅ <@{user_id}> 님에게 <@&{role_id}> 역할을 지급했어요. "
+                f"✅ <@{user_id}> 님에게 **{role}** 역할을 지급했어요. "
                 f"(처리: <@{approver_id}>)"
             ),
             components=[],  # 버튼 제거
+            allowed_mentions={"parse": []},  # 멘션 알림 억제
         )
-    _safe_followup(interaction, f"✅ <@{user_id}> 님에게 역할을 지급했어요.")
+    _safe_followup(interaction, f"✅ 역할을 지급했어요.")
 
 
 # --- 헬퍼 -------------------------------------------------------------------
+
+def _member_display_name(member: dict) -> str:
+    """멤버의 표시 이름을 반환. 서버 별명 > 글로벌 이름 > 유저명 순."""
+    user = member.get("user", {})
+    return (
+        member.get("nick")
+        or user.get("global_name")
+        or user.get("username")
+        or "알 수 없음"
+    )
+
 
 def _resolved_role_name(data: dict, role_id: str) -> str:
     """슬래시 명령의 resolved 데이터에서 역할 이름을 꺼낸다. 없으면 ID를 반환."""
