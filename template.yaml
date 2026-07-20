@@ -36,6 +36,15 @@ Resources:
         Variables:
           DISCORD_APPLICATION_ID: !Ref DiscordApplicationId
           DISCORD_BOT_TOKEN: !Ref DiscordBotToken
+      Policies:
+        # /역할지급-설정 값(관리자 확인 채널)을 SSM 파라미터 스토어에 읽고 쓴다.
+        # 표준 파라미터라 요금 없음. 이름 규칙: /themoment-bot/{guild_id}/review-channel
+        - Statement:
+            - Effect: Allow
+              Action:
+                - ssm:GetParameter
+                - ssm:PutParameter
+              Resource: !Sub "arn:aws:ssm:${AWS::Region}:${AWS::AccountId}:parameter/themoment-bot/*"
 
   # --- Front Lambda: Discord 수신 + 즉시 응답 ---
   InteractionFunction:

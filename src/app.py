@@ -25,9 +25,11 @@ WORKER_FUNCTION_NAME = os.environ.get("WORKER_FUNCTION_NAME", "")
 
 PING = 1
 APPLICATION_COMMAND = 2
+MESSAGE_COMPONENT = 3  # 버튼 클릭 등
 
 PONG = 1
 DEFERRED_CHANNEL_MESSAGE = 5  # "생각 중..." 후 followup으로 채우는 응답
+EPHEMERAL = 64  # 응답을 실행 당사자에게만 표시
 
 _lambda = boto3.client("lambda")
 
@@ -51,15 +53,20 @@ def handler(event, context):
     if itype == PING:
         return _response(200, {"type": PONG})
 
-    if itype == APPLICATION_COMMAND:
-        # 실제 작업은 Worker Lambda에 비동기로 넘긴다 (InvocationType="Event").
-        # 이 invoke는 결과를 기다리지 않으므로 수십 ms 안에 끝난다.
+    if itype in (APPLICATION_COMMAND, MESSAGE_COMPONENT):
+        # 실제 작업(명령 실행, 버튼 처리)은 Worker Lambda에 비동기로 넘긴다
+        # (InvocationType="Event"). 이 invoke는 결과를 기다리지 않으므로
+        # 수십 ms 안에 끝난다.
         _lambda.invoke(
             FunctionName=WORKER_FUNCTION_NAME,
             InvocationType="Event",
             Payload=json.dumps(interaction).encode(),
         )
-        # Discord에는 즉시 deferred 응답 → 사용자에겐 "생각 중..." 표시.
-        return _response(200, {"type": DEFERRED_CHANNEL_MESSAGE})
+        # Discord에는 즉시 deferred 응답 → 실행 당사자에게만 "생각 중..." 표시.
+        # 이후 Worker의 followup 메시지도 ephemeral로 이어진다.
+        return _response(
+            200,
+            {"type": DEFERRED_CHANNEL_MESSAGE, "data": {"flags": EPHEMERAL}},
+        )
 
     return _response(400, {"error": "unhandled interaction type"})

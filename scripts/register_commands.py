@@ -23,35 +23,62 @@ APP_ID = os.environ["DISCORD_APPLICATION_ID"]
 BOT_TOKEN = os.environ["DISCORD_BOT_TOKEN"]
 GUILD_ID = os.environ.get("DISCORD_GUILD_ID")
 
-# 명령어 정의. option type: 3=문자열, 8=역할(role)
+# 명령어 정의.
+#   option type: 3=문자열(string), 7=채널(channel), 8=역할(role)
+#   default_member_permissions "8" = ADMINISTRATOR → 관리자에게만 명령어가 보임.
+_ADMIN_ONLY = "8"
+
 COMMANDS = [
     {
-        "name": "create-channel",
-        "description": "새 채널을 생성합니다",
+        "name": "역할지급-전송",
+        "description": "역할 신청 버튼을 붙일 메시지를 채널로 전송합니다",
+        "default_member_permissions": _ADMIN_ONLY,
         "options": [
             {
-                "name": "name",
-                "description": "만들 채널 이름",
+                "name": "내용",
+                "description": "전송할 메시지 내용",
                 "type": 3,
-                "required": True,
-            }
-        ],
-    },
-    {
-        "name": "sync-nicknames",
-        "description": "특정 역할을 가진 멤버의 별명에 접두사를 붙입니다",
-        "options": [
-            {
-                "name": "role",
-                "description": "대상 역할",
-                "type": 8,
                 "required": True,
             },
             {
-                "name": "prefix",
-                "description": "붙일 접두사 (기본: ★)",
+                "name": "채널",
+                "description": "메시지를 보낼 채널",
+                "type": 7,
+                "channel_types": [0],  # 0=텍스트 채널
+                "required": True,
+            },
+        ],
+    },
+    {
+        "name": "역할지급-추가",
+        "description": "전송한 메시지에 역할 신청 버튼을 추가합니다 (메시지가 있는 채널에서 실행)",
+        "default_member_permissions": _ADMIN_ONLY,
+        "options": [
+            {
+                "name": "메시지id",
+                "description": "버튼을 추가할 메시지의 ID (이 명령을 그 메시지가 있는 채널에서 실행)",
                 "type": 3,
-                "required": False,
+                "required": True,
+            },
+            {
+                "name": "역할",
+                "description": "신청 버튼으로 지급할 역할",
+                "type": 8,
+                "required": True,
+            },
+        ],
+    },
+    {
+        "name": "역할지급-설정",
+        "description": "역할 신청이 올 때 관리자가 확인할 채널을 설정합니다",
+        "default_member_permissions": _ADMIN_ONLY,
+        "options": [
+            {
+                "name": "채널",
+                "description": "신청 확인용 관리자 채널",
+                "type": 7,
+                "channel_types": [0],  # 0=텍스트 채널
+                "required": True,
             },
         ],
     },

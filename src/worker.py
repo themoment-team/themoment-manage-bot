@@ -1,26 +1,42 @@
 """Worker Lambda — 실제 배치 작업 수행.
 
-Front(app.py)가 비동기로 넘긴 interaction 페이로드를 받아 실제 관리 작업
-(채널 생성, 별명 일괄 변경 등)을 수행하고, 결과를 Discord followup 웹훅으로
-전송합니다. 이 함수는 3초 제약을 받지 않습니다 (Discord와 직접 연결 없음).
+Front(app.py)가 비동기로 넘긴 interaction 페이로드를 받아 실제 작업을 수행하고,
+결과를 Discord followup 웹훅으로 전송합니다. 이 함수는 3초 제약을 받지 않습니다.
 
-타임아웃은 template.yaml에서 넉넉히(예: 60초) 설정하세요.
+처리하는 두 종류의 인터랙션:
+  - type 2 (슬래시 명령): 역할지급-전송 / 역할지급-추가 / 역할지급-설정
+  - type 3 (버튼 클릭):   apply:{role_id}          → 신청 접수
+                          ok:{user_id}:{role_id}   → 관리자 수락 → 역할 지급
 """
 
 import os
 
 import discord_api
+import ssm_store
 
 APPLICATION_ID = os.environ.get("DISCORD_APPLICATION_ID", "")
+
+APPLICATION_COMMAND = 2
+MESSAGE_COMPONENT = 3
+
+EPHEMERAL = 64  # 개인에게만 보이는 메시지 flag
 
 
 def handler(interaction, context):
     """interaction: Front가 넘긴 Discord Interaction dict (그대로)."""
     try:
-        _handle_command(interaction)
+        itype = interaction.get("type")
+        if itype == APPLICATION_COMMAND:
+            _handle_command(interaction)
+        elif itype == MESSAGE_COMPONENT:
+            _handle_component(interaction)
+        else:
+            _safe_followup(interaction, f"❓ 처리할 수 없는 인터랙션입니다: type={itype}")
     except Exception as e:  # noqa: BLE001 - 실패해도 사용자에게 알림
         _safe_followup(interaction, f"⚠️ 처리 중 오류가 발생했어요: {e}")
 
+
+# --- 슬래시 명령 처리 -------------------------------------------------------
 
 def _handle_command(interaction: dict) -> None:
     data = interaction.get("data", {})
@@ -28,32 +44,133 @@ def _handle_command(interaction: dict) -> None:
     guild_id = interaction.get("guild_id")
     options = {o["name"]: o.get("value") for o in data.get("options", [])}
 
-    if name == "create-channel":
-        channel_name = options.get("name", "새-채널")
-        discord_api.create_channel(guild_id, channel_name)
-        _safe_followup(interaction, f"✅ 채널 `#{channel_name}` 생성 완료!")
+    if name == "역할지급-전송":
+        content = options.get("내용", "")
+        channel_id = options.get("채널")
+        msg = discord_api.send_message(channel_id, content)
+        _safe_followup(
+            interaction,
+            f"✅ <#{channel_id}> 에 메시지를 전송했어요.\n"
+            f"메시지 ID: `{msg['id']}`\n"
+            f"→ 그 채널에서 `/역할지급-추가 메시지id:{msg['id']} 역할:...` 로 버튼을 추가하세요.",
+        )
 
-    elif name == "sync-nicknames":
-        # 특정 역할을 가진 멤버의 별명 앞에 접두사를 붙이는 예시.
-        role_id = options.get("role")
-        prefix = options.get("prefix", "★")
-        members = discord_api.list_members(guild_id)
-        changed = 0
-        for m in members:
-            if discord_api.member_has_role(m, role_id):
-                user = m.get("user", {})
-                base = m.get("nick") or user.get("username", "")
-                if base and not base.startswith(prefix):
-                    discord_api.set_nickname(guild_id, user["id"], f"{prefix}{base}")
-                    changed += 1
-        _safe_followup(interaction, f"✅ 별명 {changed}명 변경 완료!")
+    elif name == "역할지급-추가":
+        message_id = options.get("메시지id")
+        role_id = options.get("역할")
+        # 대상 메시지는 이 명령을 실행한 채널에 있다고 전제한다.
+        channel_id = interaction.get("channel_id")
+        role_name = _resolved_role_name(data, role_id)
+
+        message = discord_api.get_message(channel_id, message_id)
+        new_components = discord_api.add_button(
+            message.get("components"),
+            label=role_name,
+            custom_id=f"apply:{role_id}",
+        )
+        discord_api.edit_message(channel_id, message_id, components=new_components)
+        _safe_followup(
+            interaction,
+            f"✅ 메시지 `{message_id}` 에 **{role_name}** 신청 버튼을 추가했어요.",
+        )
+
+    elif name == "역할지급-설정":
+        channel_id = options.get("채널")
+        ssm_store.set_review_channel(guild_id, channel_id)
+        _safe_followup(
+            interaction,
+            f"✅ 역할 신청 확인 채널을 <#{channel_id}> 로 설정했어요.",
+        )
 
     else:
         _safe_followup(interaction, f"❓ 모르는 명령어예요: `{name}`")
 
 
+# --- 버튼 클릭 처리 ---------------------------------------------------------
+
+def _handle_component(interaction: dict) -> None:
+    custom_id = interaction.get("data", {}).get("custom_id", "")
+    guild_id = interaction.get("guild_id")
+
+    if custom_id.startswith("apply:"):
+        _handle_apply(interaction, guild_id, custom_id)
+    elif custom_id.startswith("ok:"):
+        _handle_approve(interaction, guild_id, custom_id)
+    else:
+        _safe_followup(interaction, f"❓ 알 수 없는 버튼이에요: `{custom_id}`")
+
+
+def _handle_apply(interaction: dict, guild_id: str, custom_id: str) -> None:
+    role_id = custom_id.split(":", 1)[1]
+    applicant_id = interaction.get("member", {}).get("user", {}).get("id")
+
+    review_channel = ssm_store.get_review_channel(guild_id)
+    if not review_channel:
+        _safe_followup(
+            interaction,
+            "⚠️ 아직 신청 확인 채널이 설정되지 않았어요. 관리자에게 `/역할지급-설정` 을 요청해주세요.",
+        )
+        return
+
+    approve_row = [
+        {
+            "type": 1,  # action row
+            "components": [
+                {
+                    "type": 2,  # 버튼
+                    "style": 3,  # 3 = success(초록)
+                    "label": "수락",
+                    "custom_id": f"ok:{applicant_id}:{role_id}",
+                }
+            ],
+        }
+    ]
+    discord_api.send_message(
+        review_channel,
+        f"📥 <@{applicant_id}> 님이 <@&{role_id}> 역할을 신청했어요.",
+        components=approve_row,
+    )
+    _safe_followup(
+        interaction,
+        "✅ 신청이 접수됐어요. 관리자 확인을 기다려 주세요!",
+    )
+
+
+def _handle_approve(interaction: dict, guild_id: str, custom_id: str) -> None:
+    _, user_id, role_id = custom_id.split(":", 2)
+    approver_id = interaction.get("member", {}).get("user", {}).get("id")
+
+    discord_api.add_role(guild_id, user_id, role_id)
+
+    # 관리자 채널의 원본 신청 메시지를 "지급 완료"로 바꾸고 버튼 제거.
+    channel_id = interaction.get("channel_id")
+    message_id = interaction.get("message", {}).get("id")
+    if channel_id and message_id:
+        discord_api.edit_message(
+            channel_id,
+            message_id,
+            content=(
+                f"✅ <@{user_id}> 님에게 <@&{role_id}> 역할을 지급했어요. "
+                f"(처리: <@{approver_id}>)"
+            ),
+            components=[],  # 버튼 제거
+        )
+    _safe_followup(interaction, f"✅ <@{user_id}> 님에게 역할을 지급했어요.")
+
+
+# --- 헬퍼 -------------------------------------------------------------------
+
+def _resolved_role_name(data: dict, role_id: str) -> str:
+    """슬래시 명령의 resolved 데이터에서 역할 이름을 꺼낸다. 없으면 ID를 반환."""
+    roles = data.get("resolved", {}).get("roles", {})
+    role = roles.get(role_id, {})
+    return role.get("name", role_id)
+
+
 def _safe_followup(interaction: dict, content: str) -> None:
     try:
-        discord_api.send_followup(APPLICATION_ID, interaction["token"], content)
+        discord_api.send_followup(
+            APPLICATION_ID, interaction["token"], content, flags=EPHEMERAL
+        )
     except Exception:  # noqa: BLE001
         print(f"followup failed: {content}")
