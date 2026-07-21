@@ -78,6 +78,28 @@ def _handle_command(interaction: dict) -> None:
             f"승인 시 전송 채널로 보낼 메시지도 저장했어요.",
         )
 
+    elif name == "역할지급-삭제":
+        message_id = options.get("메시지id")
+        role_id = options.get("역할")
+        channel_id = interaction.get("channel_id")
+        role_name = _resolved_role_name(data, role_id)
+
+        message = discord_api.get_message(channel_id, message_id)
+        new_components, removed = discord_api.remove_button(
+            message.get("components"), f"apply:{role_id}"
+        )
+        if not removed:
+            _safe_followup(
+                interaction,
+                f"⚠️ 메시지 `{message_id}` 에 **{role_name}** 신청 버튼이 없어요.",
+            )
+            return
+        discord_api.edit_message(channel_id, message_id, components=new_components)
+        _safe_followup(
+            interaction,
+            f"✅ 메시지 `{message_id}` 에서 **{role_name}** 신청 버튼을 삭제했어요.",
+        )
+
     elif name == "역할지급-설정":
         review_channel = options.get("승인채널")
         broadcast_channel = options.get("전송채널")

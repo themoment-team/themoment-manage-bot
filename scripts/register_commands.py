@@ -75,6 +75,25 @@ COMMANDS = [
         ],
     },
     {
+        "name": "역할지급-삭제",
+        "description": "메시지에서 특정 역할의 신청 버튼을 삭제합니다 (메시지가 있는 채널에서 실행)",
+        "default_member_permissions": _ADMIN_ONLY,
+        "options": [
+            {
+                "name": "메시지id",
+                "description": "버튼을 삭제할 메시지의 ID (이 명령을 그 메시지가 있는 채널에서 실행)",
+                "type": 3,
+                "required": True,
+            },
+            {
+                "name": "역할",
+                "description": "삭제할 신청 버튼의 역할",
+                "type": 8,
+                "required": True,
+            },
+        ],
+    },
+    {
         "name": "역할지급-설정",
         "description": "승인 채널(관리자 확인)과 전송 채널(승인 안내)을 설정합니다",
         "default_member_permissions": _ADMIN_ONLY,

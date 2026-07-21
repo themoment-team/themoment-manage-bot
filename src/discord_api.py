@@ -183,6 +183,27 @@ def add_button(components: list | None, label: str, custom_id: str) -> list:
     return rows
 
 
+def remove_button(components: list | None, custom_id: str) -> tuple[list, bool]:
+    """components에서 custom_id가 일치하는 버튼을 제거한 (새 목록, 제거여부)를 반환.
+
+    나머지 버튼들은 순서를 유지한 채 5개씩 action row로 다시 나눈다. 남은 버튼이
+    없으면 빈 목록을 반환한다(메시지의 버튼이 모두 사라진다).
+    """
+    buttons = []
+    removed = False
+    for row in components or []:
+        for comp in row.get("components", []):
+            if comp.get("type") == 2:  # 2 = 버튼
+                if comp.get("custom_id") == custom_id:
+                    removed = True
+                    continue  # 이 버튼만 건너뛴다(제거)
+                buttons.append(comp)
+    rows = []
+    for i in range(0, len(buttons), 5):
+        rows.append({"type": 1, "components": buttons[i : i + 5]})
+    return rows, removed
+
+
 def send_followup(
     application_id: str,
     interaction_token: str,
